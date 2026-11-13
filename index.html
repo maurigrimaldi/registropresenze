@@ -1,0 +1,1282 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Presenze">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0d1117">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>Presenze Scolastiche</title>
+
+<!-- jsQR per lettura QR -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js"></script>
+<!-- SheetJS per export Excel -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- QRCode.js per generazione QR studenti -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --bg: #0d1117;
+  --surface: #161b22;
+  --card: #1c2333;
+  --border: #30363d;
+  --accent: #58a6ff;
+  --green: #3fb950;
+  --red: #f85149;
+  --orange: #e3b341;
+  --text: #e6edf3;
+  --muted: #8b949e;
+  --radius: 12px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  overscroll-behavior: none;
+}
+
+/* ─── LAYOUT ─── */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.topbar {
+  padding: calc(var(--safe-top) + 14px) 20px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.topbar-left { display: flex; align-items: center; gap: 10px; }
+.app-icon {
+  width: 34px; height: 34px;
+  background: var(--accent);
+  border-radius: 8px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px;
+}
+.app-title { font-size: 16px; font-weight: 800; letter-spacing: -0.3px; }
+.app-sub { font-size: 10px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+#clock {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--accent);
+  background: rgba(88,166,255,0.1);
+  border: 1px solid rgba(88,166,255,0.2);
+  padding: 6px 12px;
+  border-radius: 8px;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.bottomnav {
+  display: flex;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  padding: 8px 0 calc(var(--safe-bottom) + 8px);
+  flex-shrink: 0;
+}
+
+.nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s;
+  color: var(--muted);
+}
+
+.nav-item.active { color: var(--accent); }
+.nav-icon { font-size: 20px; }
+.nav-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* ─── VIEWS ─── */
+.view { display: none; padding: 16px; }
+.view.active { display: block; }
+
+/* ─── SCANNER ─── */
+.scanner-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+
+.scanner-topbar {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.live-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+}
+
+.live-dot.inactive { background: var(--muted); animation: none; }
+.live-dot.active { animation: livePulse 1.5s ease-in-out infinite; }
+
+@keyframes livePulse {
+  0%,100% { opacity:1; box-shadow: 0 0 0 0 rgba(63,185,80,0.4); }
+  50% { opacity:0.7; box-shadow: 0 0 0 6px rgba(63,185,80,0); }
+}
+
+.scanner-label { font-size: 13px; font-weight: 700; }
+.scanner-state {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+#viewport {
+  position: relative;
+  background: #000;
+  aspect-ratio: 1/1;
+  max-height: 65vw;
+  overflow: hidden;
+}
+
+#video {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  transform: scaleX(1); /* no mirror for back cam */
+}
+
+#scan-canvas { display: none; }
+
+/* Viewfinder overlay */
+.viewfinder {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+}
+
+.vf-frame {
+  width: 55%; aspect-ratio: 1;
+  position: relative;
+}
+
+.vf-frame::before, .vf-frame::after,
+.vf-frame .corner-br, .vf-frame .corner-bl {
+  content: '';
+  position: absolute;
+  width: 22px; height: 22px;
+  border-style: solid;
+  border-color: rgba(255,255,255,0.85);
+}
+.vf-frame::before { top:0; left:0; border-width: 3px 0 0 3px; border-radius: 3px 0 0 0; }
+.vf-frame::after { top:0; right:0; border-width: 3px 3px 0 0; border-radius: 0 3px 0 0; }
+.vf-frame .corner-br { bottom:0; right:0; border-width: 0 3px 3px 0; border-radius: 0 0 3px 0; }
+.vf-frame .corner-bl { bottom:0; left:0; border-width: 0 0 3px 3px; border-radius: 0 0 0 3px; }
+
+.scan-beam {
+  position: absolute;
+  left: 8%; right: 8%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #58a6ff 40%, #58a6ff 60%, transparent);
+  box-shadow: 0 0 8px rgba(88,166,255,0.6);
+  top: 8%;
+  animation: beam 2.2s ease-in-out infinite;
+  border-radius: 2px;
+}
+
+@keyframes beam {
+  0%   { top: 8%; opacity: 1; }
+  48%  { top: 88%; opacity: 1; }
+  50%  { top: 88%; opacity: 0; }
+  52%  { top: 8%; opacity: 0; }
+  54%  { top: 8%; opacity: 1; }
+  100% { top: 8%; opacity: 1; }
+}
+
+/* Dark overlay sides */
+.vf-overlay-top, .vf-overlay-bottom, .vf-overlay-left, .vf-overlay-right {
+  position: absolute;
+  background: rgba(0,0,0,0.45);
+}
+.vf-overlay-top    { top:0; left:0; right:0; height: 22%; }
+.vf-overlay-bottom { bottom:0; left:0; right:0; height: 22%; }
+.vf-overlay-left   { top: 22%; bottom: 22%; left:0; width: calc(50% - 27.5%); }
+.vf-overlay-right  { top: 22%; bottom: 22%; right:0; width: calc(50% - 27.5%); }
+
+.cam-btn {
+  display: block;
+  width: 100%;
+  padding: 15px;
+  background: var(--accent);
+  border: none;
+  color: #0d1117;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  letter-spacing: 0.3px;
+}
+
+.cam-btn:active { opacity: 0.85; }
+.cam-btn.stop { background: var(--red); color: #fff; }
+
+/* ─── TOAST ─── */
+#toast {
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 14px;
+  display: none;
+  border: 1px solid;
+  animation: toastIn 0.25s ease;
+}
+
+@keyframes toastIn {
+  from { transform: translateY(-8px); opacity: 0; }
+  to   { transform: translateY(0);   opacity: 1; }
+}
+
+#toast.ok-in  { background: rgba(63,185,80,0.1);  border-color: var(--green); }
+#toast.ok-out { background: rgba(248,81,73,0.1);   border-color: var(--red);  }
+#toast.err    { background: rgba(227,179,65,0.1);  border-color: var(--orange); }
+
+.toast-row { display: flex; align-items: center; gap: 12px; }
+.toast-emoji { font-size: 30px; flex-shrink: 0; }
+.toast-body {}
+.toast-tipo { font-size: 10px; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }
+.toast-nome { font-size: 19px; font-weight: 800; letter-spacing: -0.3px; }
+.toast-meta { font-size: 12px; color: var(--muted); margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+
+/* ─── STATS ─── */
+.stats-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.stat {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 12px;
+  text-align: center;
+}
+
+.stat-n { font-size: 26px; font-weight: 800; }
+.stat-n.green { color: var(--green); }
+.stat-n.red   { color: var(--red);   }
+.stat-n.blue  { color: var(--accent); }
+.stat-lbl { font-size: 9px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.8px; margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+
+/* ─── REGISTRO ─── */
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.section-title { font-size: 14px; font-weight: 700; }
+.section-meta  { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+.export-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(63,185,80,0.1);
+  border: 1px solid rgba(63,185,80,0.35);
+  color: var(--green);
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.export-btn:active { opacity: 0.8; }
+
+.log-list {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.log-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.log-empty-icon { font-size: 36px; margin-bottom: 8px; }
+
+.log-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+  animation: fadeItem 0.2s ease;
+}
+
+.log-item:last-child { border-bottom: none; }
+
+@keyframes fadeItem { from { opacity:0; } to { opacity:1; } }
+
+.log-badge {
+  width: 36px; height: 36px;
+  border-radius: 10px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px;
+  flex-shrink: 0;
+}
+
+.log-badge.in  { background: rgba(63,185,80,0.15); }
+.log-badge.out { background: rgba(248,81,73,0.15); }
+
+.log-info { flex: 1; min-width: 0; }
+.log-nome  { font-size: 14px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.log-classe { font-size: 11px; color: var(--muted); }
+
+.log-right { text-align: right; flex-shrink: 0; }
+.log-tipo  { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 2px; }
+.log-tipo.in  { color: var(--green); }
+.log-tipo.out { color: var(--red); }
+.log-ora   { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+/* ─── STUDENTI ─── */
+.form-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 14px;
+}
+
+.form-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: var(--muted); margin-bottom: 12px; }
+
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+.form-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; font-family: 'JetBrains Mono', monospace; }
+
+input[type="text"] {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  color: var(--text);
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+  width: 100%;
+  -webkit-appearance: none;
+}
+
+input[type="text"]:focus { border-color: var(--accent); }
+
+.submit-btn {
+  width: 100%;
+  padding: 13px;
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  color: #0d1117;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  margin-top: 4px;
+}
+
+.submit-btn:active { opacity: 0.85; }
+
+.student-list { display: flex; flex-direction: column; gap: 8px; }
+
+.student-item {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: border-color 0.15s;
+}
+
+.student-avatar {
+  width: 40px; height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--accent), #0048d4);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 800;
+  color: white;
+  flex-shrink: 0;
+}
+
+.student-info { flex: 1; min-width: 0; }
+.student-nome { font-size: 14px; font-weight: 700; }
+.student-sub  { font-size: 11px; color: var(--muted); font-family: 'JetBrains Mono', monospace; }
+
+.qr-btn {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+  display: flex; align-items: center; gap: 5px;
+}
+
+.qr-btn:active { opacity: 0.75; }
+
+.delete-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--muted);
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.delete-btn:active { color: var(--red); border-color: var(--red); }
+
+/* ─── MODAL QR ─── */
+.modal-bg {
+  display: none;
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal-bg.open { display: flex; }
+
+.modal-box {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 28px 24px;
+  width: 100%;
+  max-width: 300px;
+  text-align: center;
+  animation: modalPop 0.25s cubic-bezier(0.34,1.56,0.64,1);
+}
+
+@keyframes modalPop {
+  from { transform: scale(0.85); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
+}
+
+.modal-nome  { font-size: 18px; font-weight: 800; margin-bottom: 2px; }
+.modal-classe { font-size: 12px; color: var(--muted); font-family: 'JetBrains Mono', monospace; margin-bottom: 20px; }
+
+.qr-wrap {
+  background: white;
+  border-radius: 12px;
+  padding: 14px;
+  display: inline-block;
+  margin-bottom: 14px;
+}
+
+.modal-id {
+  font-size: 11px; color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  margin-bottom: 10px;
+}
+
+.modal-hint {
+  font-size: 11px; color: var(--muted);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.modal-close {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-family: 'Plus Jakarta Sans', sans-serif;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.modal-close:active { border-color: var(--text); color: var(--text); }
+
+/* ─── EXPORT SUCCESS ─── */
+.export-success {
+  display: none;
+  background: rgba(63,185,80,0.12);
+  border: 1px solid rgba(63,185,80,0.4);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 13px;
+  color: var(--green);
+  margin-bottom: 14px;
+  animation: toastIn 0.25s ease;
+}
+
+.exit-row { display:flex; align-items:center; gap:8px; margin-top:6px; }
+.exit-row span { font-size:11px; color:var(--muted); font-family:'JetBrains Mono',monospace; }
+input[type="time"] {
+  background: var(--card); border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px 8px; color: var(--text); font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; outline: none; -webkit-appearance: none; appearance: none; min-height: 32px;
+}
+input[type="time"]:focus { border-color: var(--accent); }
+.form-card input[type="time"] { width:100%; padding:10px 12px; font-size:14px; }
+.auto-tag { display:inline-block; font-size:9px; font-weight:700; letter-spacing:.6px; text-transform:uppercase;
+  color: var(--orange); border:1px solid rgba(227,179,65,.45); border-radius:5px; padding:1px 5px; margin-left:6px; }
+.bulk-btn { width:100%; padding:11px; background:var(--card); border:1px solid var(--accent); color:var(--accent);
+  border-radius:8px; font-family:'Plus Jakarta Sans',sans-serif; font-size:13px; font-weight:700; cursor:pointer; margin-top:4px; }
+.bulk-btn:active { opacity:.8; }
+.note { font-size:11px; color:var(--muted); line-height:1.5; margin-top:8px; }
+.scrollable { padding-bottom: 20px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ─── TOP BAR ─── -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="app-icon">🎓</div>
+      <div>
+        <div class="app-title">Presenze</div>
+        <div class="app-sub" id="today-label">—</div>
+      </div>
+    </div>
+    <div id="clock">--:--</div>
+  </div>
+
+  <!-- ─── CONTENT ─── -->
+  <div class="content">
+
+    <!-- ══ VIEW: SCANNER ══ -->
+    <div class="view active scrollable" id="view-scanner">
+
+      <div id="toast">
+        <div class="toast-row">
+          <div class="toast-emoji" id="t-emoji"></div>
+          <div class="toast-body">
+            <div class="toast-tipo" id="t-tipo"></div>
+            <div class="toast-nome" id="t-nome"></div>
+            <div class="toast-meta" id="t-meta"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="scanner-card">
+        <div class="scanner-topbar">
+          <div class="live-dot inactive" id="live-dot"></div>
+          <div class="scanner-label">Fotocamera</div>
+          <div class="scanner-state" id="scan-state">IN ATTESA</div>
+        </div>
+        <div id="viewport">
+          <video id="video" autoplay playsinline muted></video>
+          <canvas id="scan-canvas"></canvas>
+          <div class="viewfinder">
+            <div class="vf-overlay-top"></div>
+            <div class="vf-overlay-bottom"></div>
+            <div class="vf-overlay-left"></div>
+            <div class="vf-overlay-right"></div>
+            <div class="vf-frame">
+              <span class="corner-br"></span>
+              <span class="corner-bl"></span>
+              <div class="scan-beam"></div>
+            </div>
+          </div>
+        </div>
+        <button class="cam-btn" id="cam-btn" onclick="toggleCam()">▶ AVVIA FOTOCAMERA</button>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat">
+          <div class="stat-n green" id="s-presenti">0</div>
+          <div class="stat-lbl">Presenti</div>
+        </div>
+        <div class="stat">
+          <div class="stat-n red" id="s-usciti">0</div>
+          <div class="stat-lbl">Usciti</div>
+        </div>
+        <div class="stat">
+          <div class="stat-n blue" id="s-totale">0</div>
+          <div class="stat-lbl">Totale</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ══ VIEW: REGISTRO ══ -->
+    <div class="view scrollable" id="view-registro">
+
+      <div id="export-success" class="export-success">
+        ✅ File Excel scaricato con successo!
+      </div>
+
+      <div class="section-head">
+        <div>
+          <div class="section-title">Registro odierno</div>
+          <div class="section-meta" id="reg-date">—</div>
+        </div>
+        <button class="export-btn" onclick="exportExcel()">
+          <span>📊</span> Esporta Excel
+        </button>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat">
+          <div class="stat-n green" id="r-presenti">0</div>
+          <div class="stat-lbl">Presenti</div>
+        </div>
+        <div class="stat">
+          <div class="stat-n red" id="r-usciti">0</div>
+          <div class="stat-lbl">Usciti</div>
+        </div>
+        <div class="stat">
+          <div class="stat-n blue" id="r-totale">0</div>
+          <div class="stat-lbl">Totale</div>
+        </div>
+      </div>
+
+      <div class="log-list" id="log-container">
+        <div class="log-empty">
+          <div class="log-empty-icon">📋</div>
+          Nessun ingresso o uscita<br>registrato oggi
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ══ VIEW: STUDENTI ══ -->
+    <div class="view scrollable" id="view-studenti">
+
+      <div class="form-card">
+        <div class="form-title">Aggiungi studente</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <span class="form-label">Nome</span>
+            <input type="text" id="f-nome" placeholder="Mario" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <span class="form-label">Cognome</span>
+            <input type="text" id="f-cognome" placeholder="Rossi" autocomplete="off">
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="form-group">
+            <span class="form-label">Classe</span>
+            <input type="text" id="f-classe" placeholder="es. 3A" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <span class="form-label">Uscita programmata</span>
+            <input type="time" id="f-uscita">
+          </div>
+        </div>
+        <button class="submit-btn" onclick="addStudent()">+ Aggiungi</button>
+      </div>
+
+      <div class="form-card">
+        <div class="form-title">⏰ Orario di uscita per classe</div>
+        <div class="form-grid">
+          <div class="form-group">
+            <span class="form-label">Classe</span>
+            <input type="text" id="b-classe" placeholder="es. 3A" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <span class="form-label">Uscita</span>
+            <input type="time" id="b-uscita">
+          </div>
+        </div>
+        <button class="bulk-btn" onclick="applyBulkExit()">Applica a tutta la classe</button>
+        <div class="note">All'orario programmato l'uscita viene registrata da sola, solo per gli studenti presenti. Se l'app era chiusa, la registra alla riapertura con l'orario programmato (segnata come «automatica»).</div>
+      </div>
+
+      <div class="section-head">
+        <div class="section-title">Studenti registrati</div>
+        <div class="section-meta" id="stu-count">0 studenti</div>
+      </div>
+
+      <div class="student-list" id="student-list"></div>
+
+    </div>
+
+  </div><!-- end .content -->
+
+  <!-- ─── BOTTOM NAV ─── -->
+  <div class="bottomnav">
+    <button class="nav-item active" id="nav-scanner" onclick="switchView('scanner')">
+      <span class="nav-icon">📷</span>
+      <span class="nav-label">Scanner</span>
+    </button>
+    <button class="nav-item" id="nav-registro" onclick="switchView('registro')">
+      <span class="nav-icon">📋</span>
+      <span class="nav-label">Registro</span>
+    </button>
+    <button class="nav-item" id="nav-studenti" onclick="switchView('studenti')">
+      <span class="nav-icon">👥</span>
+      <span class="nav-label">Studenti</span>
+    </button>
+  </div>
+
+</div><!-- end .app -->
+
+<!-- ─── MODAL QR ─── -->
+<div class="modal-bg" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <div class="modal-nome" id="m-nome"></div>
+    <div class="modal-classe" id="m-classe"></div>
+    <div class="qr-wrap">
+      <div id="m-qr"></div>
+    </div>
+    <div class="modal-id" id="m-id"></div>
+    <div class="modal-hint">📋 Stampa o consegna questo QR allo studente. Il docente lo inquadra con la fotocamera per registrare ingresso o uscita.</div>
+    <button class="modal-close" onclick="closeModal()">Chiudi</button>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════
+//  STATE
+// ══════════════════════════════
+let students = JSON.parse(localStorage.getItem('pres_v2_students') || '[]');
+let allLog   = JSON.parse(localStorage.getItem('pres_v2_log')      || '[]');
+let camRunning = false;
+let videoStream = null;
+let rafId = null;
+let cooldownActive = false;
+
+const pad2 = n => String(n).padStart(2, '0');
+const dateKeyOf = d => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+const todayKey = () => dateKeyOf(new Date()); // "YYYY-MM-DD" (data locale)
+const todayLog = () => allLog.filter(e => e.date === todayKey());
+
+// ══════════════════════════════
+//  INIT
+// ══════════════════════════════
+function init() {
+  if (students.length === 0) {
+    students = [
+      { id: 'S001', nome: 'Marco',  cognome: 'Bianchi',  classe: '3A' },
+      { id: 'S002', nome: 'Laura',  cognome: 'Verdi',    classe: '3A' },
+      { id: 'S003', nome: 'Luca',   cognome: 'Ferrari',  classe: '3B' },
+      { id: 'S004', nome: 'Sofia',  cognome: 'Esposito', classe: '2C' },
+      { id: 'S005', nome: 'Giulia', cognome: 'Marino',   classe: '2C' },
+    ];
+    saveStudents();
+  }
+  renderStudents();
+  renderLog();
+  updateStats();
+  updateDateLabels();
+  tickClock();
+  checkAutoExit();
+  setInterval(tickClock, 1000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { tickClock(); checkAutoExit(); } });
+  window.addEventListener('focus', checkAutoExit);
+}
+
+function tickClock() {
+  const now = new Date();
+  document.getElementById('clock').textContent =
+    now.toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+  checkAutoExit();
+}
+
+// ══════════════════════════════
+//  USCITA AUTOMATICA PROGRAMMATA
+// ══════════════════════════════
+function schedFor(dateKey, hhmm) {
+  const [y, mo, d] = dateKey.split('-').map(Number);
+  const [h, m] = hhmm.split(':').map(Number);
+  return new Date(y, mo - 1, d, h, m, 0, 0);
+}
+
+function checkAutoExit() {
+  const now = new Date();
+  const today = todayKey();
+  const dates = new Set(allLog.map(e => e.date));
+  dates.add(today);
+  const done = [];
+  dates.forEach(dk => {
+    students.forEach(s => {
+      if (!s.uscitaProg) return;
+      if (dk === today && s.skipDate === today) return;
+      const sched = schedFor(dk, s.uscitaProg);
+      if (now < sched) return;
+      const mine = allLog.filter(e => e.date === dk && e.studentId === s.id);
+      const last = mine[mine.length - 1];
+      if (!last || last.tipo !== 'ingresso') return;
+      if (new Date(last.ts) >= sched) return; // entrato dopo l'orario programmato
+      allLog.push({
+        id: Date.now() + Math.floor(Math.random() * 1000),
+        date: dk, ts: sched.toISOString(), studentId: s.id,
+        nome: s.nome, cognome: s.cognome, classe: s.classe,
+        tipo: 'uscita', auto: true
+      });
+      done.push(s);
+    });
+  });
+  if (done.length === 0) return;
+  saveLog();
+  updateStats();
+  renderLog();
+  const nome = done.length === 1 ? done[0].nome + ' ' + done[0].cognome : done.length + ' studenti';
+  const meta = done.length === 1 ? `Classe ${done[0].classe} · ore ${done[0].uscitaProg}` : 'Uscita programmata';
+  showToast('ok-out', '⏰', 'USCITA AUTOMATICA', nome, meta);
+  if (navigator.vibrate) navigator.vibrate([120]);
+}
+
+function setExitFor(s, hhmm) {
+  s.uscitaProg = hhmm || '';
+  s.skipDate = '';
+  if (hhmm && new Date() >= schedFor(todayKey(), hhmm)) {
+    s.skipDate = todayKey(); // orario già passato oggi: vale da domani
+    return true;
+  }
+  return false;
+}
+
+function setExitTime(id, hhmm) {
+  const s = students.find(x => x.id === id);
+  if (!s) return;
+  const late = setExitFor(s, hhmm);
+  saveStudents();
+  if (late) alert('Orario già trascorso per oggi: la uscita automatica varrà da domani.');
+  checkAutoExit();
+}
+
+function applyBulkExit() {
+  const classe = document.getElementById('b-classe').value.trim().toLowerCase();
+  const hhmm = document.getElementById('b-uscita').value;
+  if (!classe) { alert('Indica la classe.'); return; }
+  const target = students.filter(s => s.classe.toLowerCase() === classe);
+  if (target.length === 0) { alert('Nessuno studente nella classe "' + classe.toUpperCase() + '".'); return; }
+  let late = false;
+  target.forEach(s => { if (setExitFor(s, hhmm)) late = true; });
+  saveStudents();
+  renderStudents();
+  alert((hhmm ? 'Uscita alle ' + hhmm : 'Orario rimosso') + ' per ' + target.length + ' studenti.' +
+        (late ? '\nOrario già trascorso oggi: vale da domani.' : ''));
+  checkAutoExit();
+}
+
+function updateDateLabels() {
+  const d = new Date();
+  const str = d.toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  document.getElementById('today-label').textContent = str;
+  document.getElementById('reg-date').textContent    = str;
+}
+
+// ══════════════════════════════
+//  NAVIGATION
+// ══════════════════════════════
+function switchView(name) {
+  ['scanner','registro','studenti'].forEach(v => {
+    document.getElementById('view-' + v).classList.toggle('active', v === name);
+    document.getElementById('nav-' + v).classList.toggle('active', v === name);
+  });
+  if (name !== 'scanner' && camRunning) stopCam();
+  if (name === 'registro') { renderLog(); updateStats(); }
+  if (name === 'studenti') renderStudents();
+}
+
+// ══════════════════════════════
+//  CAMERA
+// ══════════════════════════════
+async function toggleCam() {
+  camRunning ? stopCam() : await startCam();
+}
+
+async function startCam() {
+  try {
+    videoStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1280 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    });
+    const video = document.getElementById('video');
+    video.srcObject = videoStream;
+    await video.play();
+    camRunning = true;
+    document.getElementById('cam-btn').textContent  = '⏹ FERMA FOTOCAMERA';
+    document.getElementById('cam-btn').classList.add('stop');
+    document.getElementById('live-dot').className   = 'live-dot active';
+    document.getElementById('scan-state').textContent = 'ATTIVO';
+    scheduleFrame();
+  } catch (e) {
+    alert('⚠️ Impossibile accedere alla fotocamera.\n' + e.message +
+          '\n\nAssicurati di usare HTTPS e di aver concesso i permessi.');
+  }
+}
+
+function stopCam() {
+  if (videoStream) videoStream.getTracks().forEach(t => t.stop());
+  videoStream = null;
+  camRunning = false;
+  if (rafId) cancelAnimationFrame(rafId);
+  const video = document.getElementById('video');
+  video.srcObject = null;
+  document.getElementById('cam-btn').textContent  = '▶ AVVIA FOTOCAMERA';
+  document.getElementById('cam-btn').classList.remove('stop');
+  document.getElementById('live-dot').className   = 'live-dot inactive';
+  document.getElementById('scan-state').textContent = 'IN ATTESA';
+}
+
+function scheduleFrame() {
+  if (!camRunning) return;
+  rafId = requestAnimationFrame(processFrame);
+}
+
+function processFrame() {
+  if (!camRunning) return;
+  const video  = document.getElementById('video');
+  const canvas = document.getElementById('scan-canvas');
+  if (video.readyState >= video.HAVE_ENOUGH_DATA) {
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(video, 0, 0);
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(img.data, img.width, img.height, { inversionAttempts: 'dontInvert' });
+    if (code && !cooldownActive) {
+      onQRDetected(code.data);
+    }
+  }
+  scheduleFrame();
+}
+
+// ══════════════════════════════
+//  QR HANDLER
+// ══════════════════════════════
+function onQRDetected(raw) {
+  const student = students.find(s => s.id === raw);
+  if (!student) {
+    showToast('err', '⚠️', 'QR SCONOSCIUTO', raw.substring(0, 24), '');
+    return;
+  }
+
+  // Calcola tipo: se l'ultimo evento di oggi per questo studente è ingresso → uscita, altrimenti ingresso
+  const stuToday = todayLog().filter(e => e.studentId === student.id);
+  const last = stuToday[stuToday.length - 1];
+  const tipo = (!last || last.tipo === 'uscita') ? 'ingresso' : 'uscita';
+
+  const entry = {
+    id: Date.now(),
+    date: todayKey(),
+    ts: new Date().toISOString(),
+    studentId: student.id,
+    nome: student.nome,
+    cognome: student.cognome,
+    classe: student.classe,
+    tipo
+  };
+
+  allLog.push(entry);
+  saveLog();
+  updateStats();
+
+  const ora = new Date(entry.ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  if (tipo === 'ingresso') {
+    showToast('ok-in', '🟢', 'INGRESSO REGISTRATO', `${student.nome} ${student.cognome}`, `Classe ${student.classe} · ${ora}`);
+  } else {
+    showToast('ok-out', '🔴', 'USCITA REGISTRATA', `${student.nome} ${student.cognome}`, `Classe ${student.classe} · ${ora}`);
+  }
+
+  // Vibrazione feedback
+  if (navigator.vibrate) navigator.vibrate([80, 40, 80]);
+
+  // Cooldown 2.5s
+  cooldownActive = true;
+  setTimeout(() => { cooldownActive = false; }, 2500);
+}
+
+// ══════════════════════════════
+//  TOAST
+// ══════════════════════════════
+let toastTimer;
+function showToast(cls, emoji, tipo, nome, meta) {
+  const el = document.getElementById('toast');
+  el.className = cls;
+  el.style.display = 'block';
+  document.getElementById('t-emoji').textContent = emoji;
+  document.getElementById('t-tipo').textContent  = tipo;
+  document.getElementById('t-nome').textContent  = nome;
+  document.getElementById('t-meta').textContent  = meta;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.style.display = 'none'; }, 3500);
+}
+
+// ══════════════════════════════
+//  STATS
+// ══════════════════════════════
+function updateStats() {
+  const tl = todayLog();
+  // Per ogni studente considera solo l'ultimo evento
+  const lastByStudent = {};
+  tl.forEach(e => { lastByStudent[e.studentId] = e.tipo; });
+  const presenti = Object.values(lastByStudent).filter(t => t === 'ingresso').length;
+  const usciti   = Object.values(lastByStudent).filter(t => t === 'uscita').length;
+  const totIngressi = tl.filter(e => e.tipo === 'ingresso').length;
+
+  ['s','r'].forEach(prefix => {
+    document.getElementById(prefix + '-presenti').textContent = presenti;
+    document.getElementById(prefix + '-usciti').textContent   = usciti;
+    document.getElementById(prefix + '-totale').textContent   = totIngressi;
+  });
+}
+
+// ══════════════════════════════
+//  LOG
+// ══════════════════════════════
+function renderLog() {
+  const container = document.getElementById('log-container');
+  const tl = [...todayLog()].sort((a, b) => b.ts.localeCompare(a.ts)); // più recente in cima
+  if (tl.length === 0) {
+    container.innerHTML = '<div class="log-empty"><div class="log-empty-icon">📋</div>Nessun ingresso o uscita<br>registrato oggi</div>';
+    return;
+  }
+  container.innerHTML = tl.map(e => {
+    const ora = new Date(e.ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const tipo = e.tipo;
+    return `
+      <div class="log-item">
+        <div class="log-badge ${tipo === 'ingresso' ? 'in' : 'out'}">
+          ${tipo === 'ingresso' ? '🟢' : '🔴'}
+        </div>
+        <div class="log-info">
+          <div class="log-nome">${e.nome} ${e.cognome}</div>
+          <div class="log-classe">Classe ${e.classe}${e.auto ? '<span class="auto-tag">auto</span>' : ''}</div>
+        </div>
+        <div class="log-right">
+          <div class="log-tipo ${tipo === 'ingresso' ? 'in' : 'out'}">${tipo}</div>
+          <div class="log-ora">${ora}</div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ══════════════════════════════
+//  EXPORT EXCEL  (SheetJS)
+// ══════════════════════════════
+function exportExcel() {
+  const tl = todayLog();
+  const today = new Date();
+  const dateStr = today.toLocaleDateString('it-IT');
+
+  // Foglio 1: Registro del giorno (tutti i movimenti)
+  const rows = [...tl].sort((a, b) => a.ts.localeCompare(b.ts)).map(e => ({
+    'Data':     dateStr,
+    'Ora':      new Date(e.ts).toLocaleTimeString('it-IT'),
+    'Cognome':  e.cognome,
+    'Nome':     e.nome,
+    'Classe':   e.classe,
+    'Tipo':     e.tipo.charAt(0).toUpperCase() + e.tipo.slice(1),
+    'Modalità': e.auto ? 'Automatica' : 'Manuale',
+    'ID Studente': e.studentId
+  }));
+
+  // Foglio 2: Riepilogo per studente
+  const lastByStudent = {};
+  [...tl].sort((a, b) => a.ts.localeCompare(b.ts)).forEach(e => { lastByStudent[e.studentId] = e; });
+  const summary = Object.values(lastByStudent).map(e => ({
+    'Cognome':       e.cognome,
+    'Nome':          e.nome,
+    'Classe':        e.classe,
+    'Stato Attuale': e.tipo === 'ingresso' ? 'Presente' : 'Uscito',
+    'Ultimo Evento': new Date(e.ts).toLocaleTimeString('it-IT'),
+    'Uscita programmata': ((students.find(x => x.id === e.studentId) || {}).uscitaProg) || '',
+    'ID Studente':   e.studentId
+  }));
+
+  // Crea workbook
+  const wb = XLSX.utils.book_new();
+
+  // Sheet 1: Movimenti
+  const ws1 = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{ 'Nessun dato': 'Nessun movimento registrato oggi' }]);
+  styleSheet(ws1, rows.length);
+  XLSX.utils.book_append_sheet(wb, ws1, 'Movimenti ' + dateStr.replace(/\//g,'-'));
+
+  // Sheet 2: Riepilogo
+  const ws2 = XLSX.utils.json_to_sheet(summary.length > 0 ? summary : [{ 'Nessun dato': 'Nessun studente registrato oggi' }]);
+  styleSheet(ws2, summary.length);
+  XLSX.utils.book_append_sheet(wb, ws2, 'Riepilogo');
+
+  // Nome file
+  const ymd = todayKey();
+  const filename = `Presenze_${ymd}.xlsx`;
+
+  XLSX.writeFile(wb, filename);
+
+  // Feedback
+  const el = document.getElementById('export-success');
+  el.style.display = 'block';
+  el.textContent = '✅ File "' + filename + '" scaricato!';
+  setTimeout(() => { el.style.display = 'none'; }, 3000);
+}
+
+function styleSheet(ws, rowCount) {
+  // Larghezza colonne
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+  const colWidths = [];
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    colWidths.push({ wch: 20 });
+  }
+  ws['!cols'] = colWidths;
+}
+
+// ══════════════════════════════
+//  STUDENTI
+// ══════════════════════════════
+function addStudent() {
+  const nome    = document.getElementById('f-nome').value.trim();
+  const cognome = document.getElementById('f-cognome').value.trim();
+  const classe  = document.getElementById('f-classe').value.trim();
+  const uscita  = document.getElementById('f-uscita').value;
+  if (!nome || !cognome || !classe) { alert('Compila nome, cognome e classe.'); return; }
+
+  const id = 'S' + String(Date.now()).slice(-6);
+  const st = { id, nome, cognome, classe, uscitaProg: '' };
+  if (uscita) setExitFor(st, uscita);
+  students.push(st);
+  saveStudents();
+  renderStudents();
+  document.getElementById('f-uscita').value = '';
+
+  document.getElementById('f-nome').value    = '';
+  document.getElementById('f-cognome').value = '';
+  document.getElementById('f-classe').value  = '';
+}
+
+function deleteStudent(id) {
+  if (!confirm('Eliminare questo studente?')) return;
+  students = students.filter(s => s.id !== id);
+  saveStudents();
+  renderStudents();
+}
+
+function renderStudents() {
+  const list = document.getElementById('student-list');
+  document.getElementById('stu-count').textContent = students.length + ' studenti';
+  if (students.length === 0) {
+    list.innerHTML = '<div style="color:var(--muted);text-align:center;padding:30px;font-size:13px;">Nessuno studente. Aggiungine uno sopra.</div>';
+    return;
+  }
+  list.innerHTML = students.map(s => `
+    <div class="student-item">
+      <div class="student-avatar">${s.nome[0]}${s.cognome[0]}</div>
+      <div class="student-info">
+        <div class="student-nome">${s.nome} ${s.cognome}</div>
+        <div class="student-sub">Classe ${s.classe} · ${s.id}</div>
+        <div class="exit-row"><span>⏰ Uscita</span><input type="time" value="${s.uscitaProg || ''}" onchange="setExitTime('${s.id}', this.value)"></div>
+      </div>
+      <button class="qr-btn" onclick="showQR('${s.id}')">🔲 QR</button>
+      <button class="delete-btn" onclick="deleteStudent('${s.id}')">🗑</button>
+    </div>
+  `).join('');
+}
+
+// ══════════════════════════════
+//  QR MODAL
+// ══════════════════════════════
+function showQR(id) {
+  const s = students.find(st => st.id === id);
+  if (!s) return;
+
+  document.getElementById('m-nome').textContent   = s.nome + ' ' + s.cognome;
+  document.getElementById('m-classe').textContent = 'Classe ' + s.classe;
+  document.getElementById('m-id').textContent     = 'ID: ' + s.id;
+
+  const wrap = document.getElementById('m-qr');
+  wrap.innerHTML = '';
+  new QRCode(wrap, {
+    text: s.id,
+    width: 200, height: 200,
+    colorDark: '#000000',
+    colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.H
+  });
+
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+}
+
+// ══════════════════════════════
+//  PERSIST
+// ══════════════════════════════
+function saveStudents() { localStorage.setItem('pres_v2_students', JSON.stringify(students)); }
+function saveLog()      { localStorage.setItem('pres_v2_log',      JSON.stringify(allLog));   }
+
+// ══════════════════════════════
+//  START
+// ══════════════════════════════
+init();
+
+// Service Worker (PWA offline)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
